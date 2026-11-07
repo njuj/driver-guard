@@ -39,9 +39,11 @@ def normalize(raw: str) -> str:
 
 
 def _powershell(script: str, stdin: str = "", timeout: float = 600) -> str:
+    env = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}   # pwsh 7's path breaks 5.1's modules
+    env["DG_INPUT"] = stdin
     r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", "-"], input=script + "\n",
                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
-                       env={**os.environ, "DG_INPUT": stdin})
+                       env=env)
     return r.stdout
 
 
