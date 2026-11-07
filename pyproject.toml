@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "driver-guard"
+dynamic = ["version"]
+description = "Find vulnerable and malicious kernel drivers (BYOVD) on Windows: LOLDrivers by file and Authenticode hash, signatures, locations, hidden drivers. Zero dependencies."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "kira", email = "286490266+njuj@users.noreply.github.com" }]
+keywords = ["byovd", "loldrivers", "kernel-driver", "windows-security", "edr", "dfir", "blue-team", "authenticode"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+
+[project.urls]
+Homepage = "https://github.com/njuj/driver-guard"
+
+[project.scripts]
+driver-guard = "driverguard.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "driverguard.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["driverguard*"]
+
