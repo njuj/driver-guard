@@ -2,6 +2,8 @@
 
 **Find the kernel drivers on your PC that attackers use to switch off antivirus.**
 
+<p align="center"><img src="docs/demo.svg" width="100%" alt="driver-guard running in a terminal"/></p>
+
 Ransomware gangs and RAT operators don't need their own kernel exploit. They drop a legitimately signed
 but vulnerable driver (an old overclocking tool, a hardware monitor, an anti-cheat) and use it to kill
 the antivirus, hide processes or read passwords from memory. This is "bring your own vulnerable driver",
