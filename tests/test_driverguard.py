@@ -14,7 +14,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from driverguard import analyze, cli, lol, pe, windows  # noqa: E402
+from driverguard import analyze, caps, cli, lol, pe, windows  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from drvbuild import make_driver  # noqa: E402
 from driverguard.analyze import Driver  # noqa: E402
 
 WIN = sys.platform == "win32"
@@ -105,6 +107,93 @@ class JudgeTest(unittest.TestCase):
         self.assertEqual([f.severity for f in analyze.hardening({"blocklist": "off (turned off)",
                                                                    "memory_integrity": "off"})], ["medium", "info"])
         self.assertEqual(analyze.hardening({"blocklist": "on", "memory_integrity": "on"}), [])
+
+
+OPEN_DEVICE = ["IoCreateDevice", "IoCreateSymbolicLink"]
+
+
+class CapabilityTest(unittest.TestCase):
+    """What a driver can do, from its imports and code: unknown BYOVD drivers without a catalogue."""
+
+    def caps(self, imports, code=b"\xc3"):
+        return caps.capabilities(make_driver(imports, code))
+
+    def judged(self, data, sig=None, state="Running", hashes="f"):
+        with tempfile.TemporaryDirectory() as t:
+            path = Path(t) / "iotool.sys"
+            path.write_bytes(data)
+            d = Driver(str(path), service="iotool", state=state)
+            analyze.read(d, None)
+        d.path = r"C:\Windows\System32\drivers\iotool.sys"         # judged where drivers belong
+        d.sig = sig or {"status": "Valid", "signer": "CN=Some Vendor"}
+        analyze.judge(d, None)
+        return d
+
+    def test_open_device_with_a_weapon_is_a_byovd_candidate(self):
+        for imp, word in (("MmMapIoSpace", "map physical memory"), ("ZwTerminateProcess", "kill any process"),
+                          ("MmCopyVirtualMemory", "read and write other processes' memory")):
+            d = self.judged(make_driver(OPEN_DEVICE + [imp]))
+            self.assertEqual(d.worst, "medium", imp)
+            self.assertIn(word, d.findings[0].title)
+        stopped = self.judged(make_driver(OPEN_DEVICE + ["MmMapIoSpace"]), state="Stopped")
+        self.assertEqual(stopped.worst, "low")
+
+    def test_cr0_write_found_in_code(self):
+        c = self.caps(OPEN_DEVICE, b"\x48\x89\xc8\x0f\x22\xc0\xc3")              # mov rax, rcx; mov cr0, rax
+        self.assertEqual(c.weapons, ["cr"])
+        self.assertTrue(c.byovd)
+
+    def test_what_is_not_a_candidate(self):
+        self.assertFalse(self.caps(["IoCreateDevice", "MmMapIoSpace"]).byovd)                       # no name to open
+        self.assertFalse(self.caps(["IoCreateDeviceSecure", "IoCreateSymbolicLink", "MmMapIoSpace"]).byovd)  # ACL
+        self.assertFalse(self.caps(OPEN_DEVICE + ["MmMapIoSpace", "IoRegisterDeviceInterface"]).byovd)  # PnP hardware
+        self.assertFalse(self.caps(OPEN_DEVICE + ["ExAllocatePool2"]).byovd)                         # nothing to abuse
+        self.assertFalse(self.caps(OPEN_DEVICE, b"\x0f\x30\xc3").byovd)                          # wrmsr bytes alone
+        own = self.judged(make_driver(OPEN_DEVICE + ["MmMapIoSpace"]),
+                          sig={"status": "Valid", "signer": "CN=Microsoft Windows, O=Microsoft Corporation"})
+        self.assertEqual(own.worst, "")
+
+    def test_catalogue_match_says_what_it_can_do(self):
+        data = make_driver(OPEN_DEVICE + ["ZwTerminateProcess"])
+        cat = lol.Catalogue(lol.build_index(fake_catalogue(md5=pe.file_hashes(data)["md5"])))
+        with tempfile.TemporaryDirectory() as t:
+            path = Path(t) / "killer.sys"
+            path.write_bytes(data)
+            d = Driver(str(path), service="k", state="Running")
+            analyze.read(d, cat)
+        d.path = r"C:\Windows\System32\drivers\killer.sys"
+        analyze.judge(d, cat)
+        self.assertEqual(len(d.findings), 1)                    # the catalogue verdict, not a second candidate
+        self.assertIn("It can: kill any process", d.findings[0].detail)
+
+    def test_unlisted_build_of_a_listed_name_still_shaped_like_a_weapon(self):
+        data = make_driver(OPEN_DEVICE + ["MmMapIoSpace"])
+        cat = lol.Catalogue(lol.build_index(fake_catalogue()))                     # lists "oldtool.sys" by name only
+        with tempfile.TemporaryDirectory() as t:
+            path = Path(t) / "oldtool.sys"
+            path.write_bytes(data)
+            d = Driver(str(path), service="o", state="Running")
+            analyze.read(d, cat)
+        d.path = r"C:\Windows\System32\drivers\oldtool.sys"
+        analyze.judge(d, cat)
+        self.assertEqual([x.severity for x in d.findings], ["medium"])             # one finding, not "probably fixed"
+        self.assertIn("earlier one with the same name is a known weapon", d.findings[0].detail)
+
+    def test_damaged_files_never_raise(self):
+        import random
+        good = make_driver(OPEN_DEVICE + ["MmMapIoSpace"])
+        rnd = random.Random(7)
+        for _ in range(400):
+            data = bytearray(good[:rnd.randrange(len(good))]) if rnd.random() < .3 else bytearray(good)
+            for _ in range(rnd.randrange(1, 12)):
+                if data:
+                    data[rnd.randrange(len(data))] = rnd.randrange(256)
+            caps.capabilities(bytes(data))                        # must return, whatever the bytes
+
+    @unittest.skipUnless(WIN, "Windows only")
+    def test_windows_own_drivers_parse(self):
+        parsed = [caps.capabilities(p.read_bytes()) for p in sorted(SYSDRV.glob("*.sys"))[:60]]
+        self.assertTrue(parsed and all(c is not None and c.imports for c in parsed))
 
 
 class NormalizeTest(unittest.TestCase):

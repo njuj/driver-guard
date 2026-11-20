@@ -6,6 +6,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
+from . import caps as capslib
 from . import pe
 from .lol import Catalogue, Entry
 
@@ -32,6 +33,7 @@ class Driver:
     auth: str | None = None
     sig: dict | None = None
     match: tuple[Entry, str] | None = None
+    caps: capslib.Caps | None = None
     findings: list[Finding] = field(default_factory=list)
 
     @property
@@ -61,6 +63,7 @@ def read(d: Driver, catalogue: Catalogue | None) -> None:
         d.auth = pe.authentihash(data)
     except pe.PEError:
         d.auth = None
+    d.caps = capslib.capabilities(data)
     if catalogue:
         d.match = catalogue.by_hash(d.hashes, d.auth)
 
@@ -74,27 +77,42 @@ def _location(path: str) -> str | None:
     return None
 
 
+def _windows_own(d: Driver) -> bool:
+    return "CN=Microsoft Windows," in ((d.sig or {}).get("signer") or "") + ","
+
+
 def judge(d: Driver, catalogue: Catalogue | None) -> None:
     f = d.findings
     where = "loaded right now" if d.running else ("installed, not running" if d.service else "on disk")
+    c = d.caps
+    can = f" It can: {c.describe()}." if c and c.found else ""
     if d.match:
         entry, how = d.match
         if entry.category.lower().startswith("malicious"):
             f.append(Finding("critical", f"MALICIOUS driver (LOLDrivers: {entry.names[0] if entry.names else entry.id})",
-                             f"{how}; {where}. This file is malware, not a buggy driver. {entry.link}"))
+                             f"{how}; {where}. This file is malware, not a buggy driver.{can} {entry.link}"))
         else:
             use = entry.usecase or "abused by attackers"
             f.append(Finding("high" if d.running else "medium",
                              f"known vulnerable driver: {use}",
                              f"{how}; {where}. Any program on this PC can use it to reach the kernel: "
-                             f"kill antivirus, hide, read passwords from memory. {entry.link}"))
-    elif catalogue and d.exists:
-        same = catalogue.by_name(d.filename)
-        if same:
-            windows_own = "CN=Microsoft Windows," in ((d.sig or {}).get("signer") or "") + ","
-            f.append(Finding("info" if windows_own else "low",
-                             "same file name as a known vulnerable driver, but not a listed build",
-                             f"most likely a fixed version: keep the program that installed it updated; {same.link}"))
+                             f"kill antivirus, hide, read passwords from memory.{can} {entry.link}"))
+    candidate = bool(c and not d.match and c.byovd and not _windows_own(d))
+    same = catalogue.by_name(d.filename) if catalogue and d.exists and not d.match else None
+    if same and not candidate:
+        f.append(Finding("info" if _windows_own(d) else "low",
+                         "same file name as a known vulnerable driver, but not a listed build",
+                         f"most likely a fixed version: keep the program that installed it updated; {same.link}"))
+
+    if candidate:
+        f.append(Finding("medium" if d.running else "low",
+                         "BYOVD candidate: any program can ask it to " + " and ".join(capslib.WORDS[w] for w in c.weapons),
+                         ("this exact build is not listed, but an earlier one with the same name is a known weapon "
+                          f"({same.link}), and this one still has what made it one: a device "
+                          if same else "no catalogue lists this build, but it has what attack tools look for in a driver: a device ") +
+                         "ordinary programs can open by name (no access list), and kernel primitives behind it. "
+                         "Keep it only if you use the hardware or tool it came with" +
+                         (f"; it also can: {capslib.WORDS['msr']}" if "msr" in c.found else "")))
 
     if d.sig and not d.match:
         status, signer = d.sig.get("status", ""), d.sig.get("signer", "")

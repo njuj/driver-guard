@@ -43,6 +43,8 @@ def to_json(drivers, hard, extra) -> str:
                 "exists": d.exists, "hashes": d.hashes, "authentihash": d.auth, "signature": d.sig,
                 "loldrivers": {"id": d.match[0].id, "category": d.match[0].category, "how": d.match[1],
                                "usecase": d.match[0].usecase, "link": d.match[0].link} if d.match else None,
+                "capabilities": {"can": sorted(d.caps.found), "open_device": d.caps.device and not d.caps.secure,
+                                 "pnp": d.caps.pnp, "byovd_shape": d.caps.byovd} if d.caps else None,
                 "findings": [f.__dict__ for f in d.findings]}
     return json.dumps({"tool": "driver-guard", "version": __version__, "hardening": hard,
                        "system_findings": [f.__dict__ for f in extra], "drivers": [one(d) for d in drivers]},
