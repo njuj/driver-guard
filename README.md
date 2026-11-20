@@ -2,6 +2,8 @@
 
 **Find the kernel drivers on your PC that attackers use to switch off antivirus.**
 
+<p align="center"><img src="docs/banner.svg" width="100%" alt="driver-guard: how it works"/></p>
+
 <p align="center"><img src="docs/demo.svg" width="100%" alt="driver-guard running in a terminal"/></p>
 
 Ransomware gangs and RAT operators don't need their own kernel exploit. They drop a legitimately signed
