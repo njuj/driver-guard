@@ -1,5 +1,7 @@
 # driver-guard
 
+[![Part of Cryptid Security](https://img.shields.io/badge/part_of-Cryptid%20Security-00ff9c?style=flat-square&labelColor=0d1117)](https://github.com/cryptid-security)
+
 **Find the kernel drivers on your PC that attackers use to switch off antivirus.**
 
 <p align="center"><img src="docs/banner.svg" width="100%" alt="driver-guard: how it works"/></p>
